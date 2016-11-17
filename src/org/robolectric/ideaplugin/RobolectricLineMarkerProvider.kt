@@ -111,29 +111,6 @@ class RobolectricLineMarkerProvider : LineMarkerProviderDescriptor() {
     PsiElementListNavigator.openTargets(mouseEvent, alternatives.toTypedArray(), methodsUpdater.getCaption(alternatives.size), "Overriding methods of " + fromMethod.name, renderer, methodsUpdater)
   }
 
-  class ImplementsAnnotation(val annotation: PsiAnnotation) {
-    val frameworkType: PsiClassType?
-    get() {
-      val valueAttr = annotation.findAttributeValue("value")
-      if (valueAttr is PsiClassObjectAccessExpression) {
-        val shadowedClassType = valueAttr.operand.type;
-        if (shadowedClassType is PsiClassType) {
-          return shadowedClassType
-        }
-      }
-      // todo: check className and find via JavaPsiFacade.findClass()
-
-      return null
-    }
-
-    val shadowType: PsiClass?
-    get() = (annotation.owner as PsiModifierList).parent as PsiClass?
-  }
-
-  class ImplementationAnnotation(val annotation: PsiAnnotation) {
-  }
-
-
   inner class ShadowMethodWrapper(val psiMethod: PsiMethod) {
     fun isShadow(): Boolean {
       val implementsAnnotation = implementsAnnotation()
@@ -150,8 +127,7 @@ class RobolectricLineMarkerProvider : LineMarkerProviderDescriptor() {
     fun frameworkClass() = implementsAnnotation()?.frameworkType?.resolve()
 
     private fun implementsAnnotation(): ImplementsAnnotation? {
-      val annotation = psiMethod.containingClass?.modifierList?.findAnnotation("org.robolectric.annotation.Implements")
-      return if (annotation == null) null else ImplementsAnnotation(annotation)
+      return psiMethod.containingClass?.implementsAnnotation()
     }
 
     fun frameworkMethods() : Array<out PsiMethod> {
