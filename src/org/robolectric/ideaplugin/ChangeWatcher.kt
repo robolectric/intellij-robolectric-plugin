@@ -12,11 +12,13 @@ class ChangeWatcher : PsiTreeChangeAdapter() {
   override fun beforeChildRemoval(event: PsiTreeChangeEvent) {
     if (event.child is PsiClass) {
       println("removed: ${(event.child as PsiClass).fullName()} (beforeChildRemoval)")
+    } else {
+      println("removed: ${event.child} (beforeChildRemoval)")
     }
   }
 
   override fun childRemoved(event: PsiTreeChangeEvent) {
-    println("removed: ${event.element}")
+//    println("removed: ${event.element}")
   }
 
   override fun beforeChildReplacement(event: PsiTreeChangeEvent) {

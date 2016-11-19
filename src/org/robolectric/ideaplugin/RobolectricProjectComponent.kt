@@ -1,6 +1,7 @@
 package org.robolectric.ideaplugin
 
 import com.intellij.debugger.DebuggerManagerEx
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.ProjectComponent
 import com.intellij.openapi.project.Project
 import com.intellij.psi.*
@@ -8,6 +9,7 @@ import com.intellij.psi.impl.PsiManagerEx
 import com.intellij.psi.search.GlobalSearchScope
 import com.intellij.psi.search.searches.ReferencesSearch
 import java.util.*
+import kotlin.concurrent.thread
 
 class RobolectricProjectComponent(val project: Project) : ProjectComponent {
 
@@ -55,6 +57,13 @@ class RobolectricProjectComponent(val project: Project) : ProjectComponent {
 
     val debuggerManagerEx = DebuggerManagerEx.getInstanceEx(project)
     debuggerManagerEx.addDebuggerManagerListener(DebugListener(project))
+
+    thread(name = RobolectricProjectComponent::findShadowedClasses.name) {
+      ApplicationManager.getApplication().runReadAction {
+        println("findShadowedClasses start...")
+        findShadowedClasses()
+      }
+    }
   }
 
   override fun projectClosed() {
@@ -100,7 +109,7 @@ class RobolectricProjectComponent(val project: Project) : ProjectComponent {
         }
       }
 
-      println(shadowedClasses)
+      println("Found ${shadowedClasses.size} shadowed classes.")
 
       initialized = true
     }

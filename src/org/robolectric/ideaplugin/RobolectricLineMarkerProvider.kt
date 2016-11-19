@@ -47,7 +47,6 @@ class RobolectricLineMarkerProvider : LineMarkerProviderDescriptor() {
     var lineMarkerInfo : LineMarkerInfo<*>? = null
 
     val projectComponent = getProjectComponent(psiElement.project)
-    projectComponent.findShadowedClasses()
 
     projectComponent.time("getLineMarkerInfo") {
       when (psiElement) {

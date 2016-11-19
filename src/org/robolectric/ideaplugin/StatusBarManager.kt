@@ -16,7 +16,7 @@ class StatusBarManager(private val myProject: Project) : Disposable {
     myConnection = myProject.messageBus.connect()
     myConnection.subscribe(Notifier.Topics.DEBUG_TOPIC, object : Notifier.DebugListener {
       override fun sdkChanged(sdkLevel: Int?) {
-        statusWidget.currentSdk = sdkLevel
+        statusWidget.changeTo(sdkLevel)
 
         statusBar()?.updateWidget(statusWidget.ID())
       }
