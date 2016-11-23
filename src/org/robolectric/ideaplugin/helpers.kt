@@ -22,7 +22,7 @@ class ImplementsAnnotation(val annotation: PsiAnnotation) {
     get() {
       val valueAttr = annotation.findAttributeValue("value")
       if (valueAttr is PsiClassObjectAccessExpression) {
-        val shadowedClassType = valueAttr.operand.type;
+        val shadowedClassType = valueAttr.operand.type
         if (shadowedClassType is PsiClassType) {
           return shadowedClassType
         }
@@ -36,8 +36,7 @@ class ImplementsAnnotation(val annotation: PsiAnnotation) {
     get() = (annotation.owner as PsiModifierList).parent as PsiClass?
 }
 
-class ImplementationAnnotation(val annotation: PsiAnnotation) {
-}
+class ImplementationAnnotation(val annotation: PsiAnnotation)
 
 fun ghostIcon(original: Icon, opacity: Float): ImageIcon {
   val buf = BufferedImage(original.iconWidth, original.iconHeight, BufferedImage.TYPE_INT_ARGB)

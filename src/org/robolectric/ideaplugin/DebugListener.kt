@@ -40,96 +40,13 @@ class DebugListener(private val project: Project) : DebuggerManagerListener {
   private val javaPsiFacade = JavaPsiFacade.getInstance(project)!!
   private val virtualFileManager = VirtualFileManager.getInstance()
   private val psiManager = PsiManager.getInstance(project)
+  private val sdkLibraryManager = SdkLibraryManager(project)
 
   private var currentSdkLevel = 0
 
-  private val androidAllSdkLibraries : MutableMap<AndroidSdk, Library> = HashMap()
-
   init {
-    val libraryTable = ProjectLibraryTable.getInstance(project)
-    libraryTable.libraries.forEach {
-      val name = it.name ?: ""
-      if (name.startsWith("org.robolectric:android-all:", false)) {
-        val version = name.split(":").last()
-        val thisSdk = SDKs.sdksByVersion[version]!!
-        androidAllSdkLibraries[thisSdk] = it
-        println("Found $name")
-      }
-    }
-
-    application.runWriteAction {
-      val toAdd = HashMap<AndroidSdk, Library>()
-      val missingSdks = SDKs.sdksByApiLevel.values - androidAllSdkLibraries.keys
-      if (missingSdks.any()) {
-        val libTableTx = libraryTable.modifiableModel
-        missingSdks.forEach { missingSdk ->
-          if (missingSdk.exists()) {
-            val lib: LibraryEx = createLibrary(missingSdk, libTableTx)
-            toAdd[missingSdk] = lib
-
-//            val module = ModuleManager.getInstance(project).modules.first()
-//            addLibraryToModule(lib, module)
-          } else {
-            LOGGER.warn("Couldn't find sources for Android SDK $missingSdk at ${missingSdk.sourceJarFile.path}.")
-          }
-        }
-
-        libTableTx.commit()
-
-        androidAllSdkLibraries.putAll(toAdd)
-      }
-    }
-  }
-
-  private fun createLibrary(androidSdk: AndroidSdk, libTableTx: LibraryTable.ModifiableModel): LibraryEx {
-    val jarFile = androidSdk.jarFile
-    val srcJarFile = androidSdk.sourceJarFile
-    val libraryType = libType()
-    val lib: LibraryEx = libTableTx.createLibrary(androidSdk.coordinates, libraryType) as LibraryEx
-    val libTx = lib.modifiableModel
-    val properties = libraryType?.createDefaultProperties()
-    properties?.javaClass?.getMethod("setMavenId", String::class.java)?.invoke(properties, "org.robolectric:android-all:$androidSdk")
-    libTx.properties = properties
-    libTx.addRoot("jar://${jarFile.path}!/", OrderRootType.CLASSES)
-    libTx.addRoot("jar://${srcJarFile.path}!/", OrderRootType.SOURCES)
-    LOGGER.info("Adding Android SDK library: ${lib.name}")
-    libTx.commit()
-    return lib
-  }
-
-  private fun addLibraryToModule(library: Library, module: Module): Boolean {
-    println("Adding ${library.name} to module ${module.name}")
-    val moduleRootManager = ModuleRootManager.getInstance(module)
-    val model = moduleRootManager.modifiableModel
-
-    val containsLibraryAlready = moduleRootManager.orderEntries.any {
-      it is LibraryOrderEntry && it.library == library
-    }
-
-    if (!containsLibraryAlready) {
-      model.addLibraryEntry(library).scope = DependencyScope.PROVIDED
-      model.commit()
-    }
-
-    return !containsLibraryAlready
-  }
-
-  private fun removeLibraryFromModule(library: Library, module: Module) {
-    println("Removing ${library.name} from module ${module.name}")
-    val moduleRootManager = ModuleRootManager.getInstance(module)
-    val model = moduleRootManager.modifiableModel
-    for (orderEntry in model.orderEntries) {
-      when (orderEntry) {
-        is LibraryOrderEntry -> if (orderEntry.library == library) {
-          model.removeOrderEntry(orderEntry)
-        }
-      }
-    }
-    model.commit()
-  }
-
-  private fun libType() : PersistentLibraryKind<out LibraryProperties<*>>? {
-    return LibraryKind.findById("repository") as PersistentLibraryKind<out LibraryProperties<*>>
+    sdkLibraryManager.findSdkLibraries()
+    sdkLibraryManager.addMissingLibraries()
   }
 
   override fun sessionRemoved(session: DebuggerSession?) {
@@ -229,13 +146,13 @@ class DebugListener(private val project: Project) : DebuggerManagerListener {
 
       val androidSdk = getSdk(sdkLevel)
       if (androidSdk != null) {
-        val library = androidAllSdkLibraries[androidSdk]
+        val library = sdkLibraryManager.getLibrary(androidSdk)
         if (library != null) {
           application.invokeLater {
             application.runWriteAction {
-              if (addLibraryToModule(library, module!!)) {
+              if (sdkLibraryManager.addLibraryToModule(library, module!!)) {
                 undoAddLibrary = Runnable {
-                  removeLibraryFromModule(library, module)
+                  sdkLibraryManager.removeLibraryFromModule(library, module)
                 }
               }
             }
