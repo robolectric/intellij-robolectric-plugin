@@ -12,6 +12,11 @@ import java.util.*
 import kotlin.concurrent.thread
 
 class RobolectricProjectComponent(val project: Project) : ProjectComponent {
+  companion object {
+    fun getInstance(project: Project) = project.getComponent(RobolectricProjectComponent::class.java)
+  }
+
+  val sdkLibraryManager = SdkLibraryManager(project)
 
   private val javaPsiFacade = JavaPsiFacade.getInstance(project)!!
   private val allScope = GlobalSearchScope.allScope(project)

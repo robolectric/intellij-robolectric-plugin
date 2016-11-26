@@ -28,6 +28,8 @@
     <codeInsight.lineMarkerProvider language="JAVA"
                                     implementationClass="org.robolectric.ideaplugin.RobolectricLineMarkerProvider"/>
 
+    <java.elementFinder implementation="org.robolectric.ideaplugin.SdkClassFinder" order="first, before java"/>
+
     <stubIndex implementation="org.robolectric.ideaplugin.StubIndex"/>
   </extensions>
 

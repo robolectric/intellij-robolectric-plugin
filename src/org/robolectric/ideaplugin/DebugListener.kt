@@ -6,6 +6,7 @@ import com.intellij.debugger.engine.DebuggerUtils
 import com.intellij.debugger.engine.PositionManagerImpl
 import com.intellij.debugger.engine.evaluation.expression.EvaluatorBuilderImpl
 import com.intellij.debugger.engine.events.DebuggerCommandImpl
+import com.intellij.debugger.impl.DebuggerContextImpl
 import com.intellij.debugger.impl.DebuggerManagerListener
 import com.intellij.debugger.impl.DebuggerSession
 import com.intellij.debugger.impl.DebuggerUtilsEx
@@ -17,6 +18,7 @@ import com.intellij.openapi.module.Module
 import com.intellij.openapi.module.ModuleManager
 import com.intellij.openapi.module.ModuleUtilCore
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.projectRoots.ProjectJdkTable
 import com.intellij.openapi.roots.DependencyScope
 import com.intellij.openapi.roots.LibraryOrderEntry
 import com.intellij.openapi.roots.ModuleRootManager
@@ -27,10 +29,7 @@ import com.intellij.openapi.roots.impl.libraries.ProjectLibraryTable
 import com.intellij.openapi.roots.libraries.*
 import com.intellij.openapi.vfs.VirtualFileManager
 import com.intellij.psi.*
-import com.sun.jdi.ClassType
-import com.sun.jdi.IntegerValue
-import com.sun.jdi.Location
-import com.sun.jdi.ReferenceType
+import com.sun.jdi.*
 import com.sun.jdi.request.ClassPrepareRequest
 import java.util.*
 import javax.swing.SwingUtilities
@@ -40,7 +39,7 @@ class DebugListener(private val project: Project) : DebuggerManagerListener {
   private val javaPsiFacade = JavaPsiFacade.getInstance(project)!!
   private val virtualFileManager = VirtualFileManager.getInstance()
   private val psiManager = PsiManager.getInstance(project)
-  private val sdkLibraryManager = SdkLibraryManager(project)
+  private val sdkLibraryManager = RobolectricProjectComponent.getInstance(project).sdkLibraryManager
 
   private var currentSdkLevel = 0
 
@@ -50,71 +49,83 @@ class DebugListener(private val project: Project) : DebuggerManagerListener {
   }
 
   override fun sessionRemoved(session: DebuggerSession?) {
-    println("session = $session")
+    println("session removed: $session")
   }
 
   override fun sessionAttached(session: DebuggerSession?) {
+    println("session attached: $session")
+
     val process = session!!.process
     process.managerThread.invokeAndWait(object: DebuggerCommandImpl() {
       override fun action() {
-        process.appendPositionManager(MyPositionManager(process))
+//        process.appendPositionManager(MyPositionManager(process))
       }
     })
 
     session.contextManager.addListener { debuggerContextImpl, event ->
       println("${event.name} on $session")
-      if (event == DebuggerSession.Event.PAUSE && debuggerContextImpl.isEvaluationPossible) {
-
-        println("pause!")
+      if (event == DebuggerSession.Event.CONTEXT) {
+        println("This debugger just became active... $session")
+      } else if (event == DebuggerSession.Event.PAUSE && debuggerContextImpl.isEvaluationPossible) {
 //        process.xdebugProcess.custom step manager thingy?
 
 
+//        session.alternativeJre = ProjectJdkTable.getInstance().allJdks[0]
 
+        val apiLevel = queryAndroidApiLevel(debuggerContextImpl, process)
 
-        process.managerThread.invokeAndWait(object: DebuggerCommandImpl() {
-          override fun action() {
-            val evaluationContext = debuggerContextImpl.createEvaluationContext()
-            if (evaluationContext == null) {
-              println("huh, no evaluationContext!")
-            } else {
-              val vm = process.virtualMachineProxy
-              val classClasses = vm.classesByName("org.robolectric.RuntimeEnvironment")
-              val runtimeEnvVmClass = classClasses.first() as ClassType
-              val getApiLevelVmMethod = DebuggerUtils.findMethod(runtimeEnvVmClass, "getApiLevel", "()I")!!
-              val value = process.invokeMethod(evaluationContext, runtimeEnvVmClass, getApiLevelVmMethod, emptyList<Any>())
+        // here do a thing?
+        notifyActiveSdkLevel(apiLevel ?: 0,
+            ModuleUtilCore.findModuleForPsiElement(debuggerContextImpl.contextElement))
 
-              println("value = $value")
-              println(DebuggerUtils.getValueAsString(evaluationContext, value))
-
-              val sdkLevel = (value as IntegerValue).value()
-
-              // here do a thing?
-              notifyActiveSdkLevel(sdkLevel,
-                  ModuleUtilCore.findModuleForPsiElement(debuggerContextImpl.contextElement))
-            }
-
-
-//            application.runReadAction {
-//              val builder = EvaluatorBuilderImpl.getInstance()
-//              val psiFileFactory = PsiFileFactory.getInstance(project)
-//              val psiFile: PsiJavaFile = (psiFileFactory.createFileFromText(JavaLanguage.INSTANCE,
-//                  "class A { String apiLevel() { return org.robolectric.RuntimeEnvironment.getApiLevel(); } }") as PsiJavaFile?)!!
-//              val psiCodeBlock = psiFile.classes[0].methods[0].body
-//              println(psiCodeBlock)
-//              val evaluator = builder.build(psiCodeBlock, SourcePosition.createFromLine(psiFile, 1))
-//              val value = evaluator.evaluate(evaluationContext)
-//              println("value = $value")
-//              println(DebuggerUtils.getValueAsString(evaluationContext, value))
-//
-//              val sdkLevel = (value as IntegerValue).value()
-//
-//              // here do a thing?
-//              notifyActiveSdkLevel(sdkLevel)
-//            }
-          }
-        })
       }
     }
+  }
+
+  private fun queryAndroidApiLevel(debuggerContextImpl: DebuggerContextImpl, process: DebugProcessImpl): Int? {
+    var apiLevel: Int? = null
+
+    process.managerThread.invokeAndWait(object : DebuggerCommandImpl() {
+      override fun action() {
+        val evaluationContext = debuggerContextImpl.createEvaluationContext()
+        if (evaluationContext == null) {
+          println("huh, no evaluationContext!")
+        } else {
+          val vm = process.virtualMachineProxy
+          val classClasses = vm.classesByName("org.robolectric.RuntimeEnvironment")
+          val runtimeEnvVmClass = classClasses.first() as ClassType
+          val getApiLevelVmMethod = DebuggerUtils.findMethod(runtimeEnvVmClass, "getApiLevel", "()I")!!
+          val value = process.invokeMethod(evaluationContext, runtimeEnvVmClass, getApiLevelVmMethod, ArrayList())
+
+          println("value = $value")
+          println(DebuggerUtils.getValueAsString(evaluationContext, value))
+
+          apiLevel = (value as IntegerValue).value()
+        }
+      }
+    })
+
+    return apiLevel
+  }
+
+  private fun evalInDebugger() {
+    //            application.runReadAction {
+    //              val builder = EvaluatorBuilderImpl.getInstance()
+    //              val psiFileFactory = PsiFileFactory.getInstance(project)
+    //              val psiFile: PsiJavaFile = (psiFileFactory.createFileFromText(JavaLanguage.INSTANCE,
+    //                  "class A { String apiLevel() { return org.robolectric.RuntimeEnvironment.getApiLevel(); } }") as PsiJavaFile?)!!
+    //              val psiCodeBlock = psiFile.classes[0].methods[0].body
+    //              println(psiCodeBlock)
+    //              val evaluator = builder.build(psiCodeBlock, SourcePosition.createFromLine(psiFile, 1))
+    //              val value = evaluator.evaluate(evaluationContext)
+    //              println("value = $value")
+    //              println(DebuggerUtils.getValueAsString(evaluationContext, value))
+    //
+    //              val sdkLevel = (value as IntegerValue).value()
+    //
+    //              // here do a thing?
+    //              notifyActiveSdkLevel(sdkLevel)
+    //            }
   }
 
   private fun laterOnUiThread(function: () -> Unit) {
@@ -122,16 +133,18 @@ class DebugListener(private val project: Project) : DebuggerManagerListener {
   }
 
   override fun sessionCreated(session: DebuggerSession?) {
-    println("session = $session")
+    println("session created: $session")
   }
 
   override fun sessionDetached(session: DebuggerSession?) {
-    println("session = $session")
+    println("session detached: $session")
     notifyActiveSdkLevel(0, null)
     project.messageBus.syncPublisher(Notifier.Topics.DEBUG_TOPIC).sdkChanged(null)
   }
 
   var undoAddLibrary: Runnable? = null
+
+  private val ADD_LIBRARY_TO_MODULE: Boolean = false
 
   private fun notifyActiveSdkLevel(sdkLevel: Int, module: Module?) {
     if (sdkLevel != currentSdkLevel) {
@@ -144,15 +157,17 @@ class DebugListener(private val project: Project) : DebuggerManagerListener {
         undoAddLibrary = null
       }
 
-      val androidSdk = getSdk(sdkLevel)
-      if (androidSdk != null) {
-        val library = sdkLibraryManager.getLibrary(androidSdk)
-        if (library != null) {
-          application.invokeLater {
-            application.runWriteAction {
-              if (sdkLibraryManager.addLibraryToModule(library, module!!)) {
-                undoAddLibrary = Runnable {
-                  sdkLibraryManager.removeLibraryFromModule(library, module)
+      if (ADD_LIBRARY_TO_MODULE) {
+        val androidSdk = sdkLibraryManager.getSdk(sdkLevel)
+        if (androidSdk != null) {
+          val library = sdkLibraryManager.getLibrary(androidSdk)
+          if (library != null) {
+            application.invokeLater {
+              application.runWriteAction {
+                if (sdkLibraryManager.addLibraryToModule(library, module!!)) {
+                  undoAddLibrary = Runnable {
+                    sdkLibraryManager.removeLibraryFromModule(library, module)
+                  }
                 }
               }
             }
@@ -162,7 +177,7 @@ class DebugListener(private val project: Project) : DebuggerManagerListener {
 
       laterOnUiThread {
         val publisher = project.messageBus.syncPublisher(Notifier.Topics.DEBUG_TOPIC)
-        publisher.sdkChanged(if (sdkLevel == 0) null else sdkLevel)
+        publisher.sdkChanged(if (sdkLevel == 0) null else sdkLibraryManager.getSdk(sdkLevel))
       }
     }
   }
@@ -191,8 +206,8 @@ class DebugListener(private val project: Project) : DebuggerManagerListener {
       if (currentSdkLevel != 0 && typeName.startsWith("android.")) {
         location!!
 
-        val androidSdk = getSdk(currentSdkLevel)
-        if (androidSdk != null) {
+        val androidSdk = sdkLibraryManager.getSdk(currentSdkLevel)
+        if (false && androidSdk != null) {
           val srcFilePath = "jar://${androidSdk.sourceJarFile.path}!/${typeName.replace('.', '/')}.java"
           val srcVFile = virtualFileManager.findFileByUrl(srcFilePath)
           if (srcVFile != null) {

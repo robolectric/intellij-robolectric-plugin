@@ -17,8 +17,7 @@ import java.awt.Insets
 import java.awt.event.MouseEvent
 import javax.swing.Icon
 
-class StatusWidget(val project: Project) :
-    StatusBarWidget.Multiframe, CustomStatusBarWidget {
+class StatusWidget(val project: Project) : StatusBarWidget.Multiframe, CustomStatusBarWidget {
   private val ICON = IconLoader.getIcon("/icons/robolectric-marker.png")
   private val GHOSTED_ICON : Icon = ghostIcon(ICON, 0.66f)
   private var myStatusBar: StatusBar? = null
@@ -60,14 +59,14 @@ class StatusWidget(val project: Project) :
     }
   }
 
-  fun changeTo(sdkLevel: Int?) {
+  fun changeTo(sdkLevel: AndroidSdk?) {
     if (sdkLevel == null) {
       ghosted = true
       myComponent.text = ""
       myComponent.foreground = UIUtil.getInactiveTextColor()
     } else {
       ghosted = false
-      myComponent.text = "SDK $sdkLevel"
+      myComponent.text = "SDK ${sdkLevel.apiLevel} + (${sdkLevel.sdkVersion})"
       myComponent.foreground = UIUtil.getActiveTextColor()
     }
   }

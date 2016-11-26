@@ -8,6 +8,6 @@ class Notifier {
   }
 
   interface DebugListener {
-    fun sdkChanged(sdkLevel: Int?): Unit
+    fun sdkChanged(androidSdk: AndroidSdk?): Unit
   }
 }
