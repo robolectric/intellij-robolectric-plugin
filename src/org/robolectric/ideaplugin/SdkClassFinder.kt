@@ -9,6 +9,7 @@ import com.intellij.openapi.roots.impl.PackageDirectoryCache
 import com.intellij.openapi.util.Condition
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.psi.*
+import com.intellij.psi.impl.compiled.ClsClassImpl
 import com.intellij.psi.search.GlobalSearchScope
 import com.intellij.util.Processor
 import com.intellij.util.messages.MessageBusConnection
@@ -20,6 +21,8 @@ class SdkClassFinder(private val project: Project, manager: DebuggerManagerEx)
   private fun sdkLibraryManager() = RobolectricProjectComponent.getInstance(project).sdkLibraryManager
   private var myConnection: MessageBusConnection
   private var currentAndroidSdk: AndroidSdk? = null
+  private var sourceJars: Array<out VirtualFile> = emptyArray()
+  private var sourceFinder: NonClasspathClassFinder? = null
 
   init {
     myConnection = myProject.messageBus.connect()
@@ -36,11 +39,24 @@ class SdkClassFinder(private val project: Project, manager: DebuggerManagerEx)
     })
 
   }
+
+  override fun clearCache() {
+    sourceFinder = null
+    super.clearCache()
+  }
+
   override fun calcClassRoots(): MutableList<VirtualFile> {
     val androidSdk = currentAndroidSdk
     if (androidSdk != null) {
       val library = sdkLibraryManager().getLibrary(androidSdk)
       if (library != null) {
+        val sourceFiles = library.rootProvider.getFiles(OrderRootType.SOURCES)
+        sourceFinder = object: NonClasspathClassFinder(project, "java") {
+          override fun calcClassRoots(): MutableList<VirtualFile> {
+            return sourceFiles.toMutableList()
+          }
+        }
+
         val classJars = library.rootProvider.getFiles(OrderRootType.CLASSES)
         return classJars.toMutableList()
       }
@@ -53,18 +69,23 @@ class SdkClassFinder(private val project: Project, manager: DebuggerManagerEx)
     return super.getPackageFilesFilter(psiPackage, scope)
   }
 
-  override fun findClasses(qualifiedName: String, scope: GlobalSearchScope): Array<out PsiClass> {
-    val findClasses = super.findClasses(qualifiedName, scope)
-    if (currentAndroidSdk != null && qualifiedName.startsWith("android")) {
-      println("findClasses $qualifiedName -> $findClasses")
-    }
-    return findClasses
-  }
+//  override fun findClasses(qualifiedName: String, scope: GlobalSearchScope): Array<out PsiClass> {
+//    val findClasses = super.findClasses(qualifiedName, scope)
+//    if (currentAndroidSdk != null && qualifiedName.startsWith("android")) {
+//      println("findClasses $qualifiedName -> ${findClasses.map { "${it} in ${it.containingFile}" }}")
+//    }
+//    return findClasses
+//  }
 
   override fun findClass(qualifiedName: String, scope: GlobalSearchScope): PsiClass? {
     val findClass = super.findClass(qualifiedName, scope)
-    if (currentAndroidSdk != null && qualifiedName.startsWith("android")) {
-      println("findClass $qualifiedName -> $findClass")
+    if (currentAndroidSdk != null && qualifiedName.startsWith("android") && findClass is ClsClassImpl) {
+      println("findClass $qualifiedName -> $findClass in ${findClass.containingFile}")
+      return object: ClsClassImpl(findClass.stub) {
+        override fun getNavigationElement(): PsiElement {
+          return sourceFinder?.findClass(qualifiedName, scope) ?: this
+        }
+      }
     }
     return findClass
   }
