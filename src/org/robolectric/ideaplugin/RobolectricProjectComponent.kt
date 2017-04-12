@@ -5,7 +5,6 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.ProjectComponent
 import com.intellij.openapi.project.Project
 import com.intellij.psi.*
-import com.intellij.psi.impl.PsiManagerEx
 import com.intellij.psi.search.GlobalSearchScope
 import com.intellij.psi.search.searches.ReferencesSearch
 import java.util.*
@@ -57,7 +56,7 @@ class RobolectricProjectComponent(val project: Project) : ProjectComponent {
     statusBarManager.opened()
 
     // called when project is opened
-    val psiManagerEx = PsiManagerEx.getInstanceEx(project)
+    val psiManagerEx = PsiManager.getInstance(project)
     psiManagerEx.addPsiTreeChangeListener(ChangeWatcher())
 
     val debuggerManagerEx = DebuggerManagerEx.getInstanceEx(project)

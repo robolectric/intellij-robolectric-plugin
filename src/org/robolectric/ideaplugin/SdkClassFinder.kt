@@ -7,11 +7,15 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.roots.OrderRootType
 import com.intellij.openapi.roots.impl.PackageDirectoryCache
 import com.intellij.openapi.util.Condition
+import com.intellij.openapi.util.Ref
+import com.intellij.openapi.util.text.StringUtil
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.psi.*
 import com.intellij.psi.impl.compiled.ClsClassImpl
+import com.intellij.psi.search.EverythingGlobalScope
 import com.intellij.psi.search.GlobalSearchScope
 import com.intellij.util.Processor
+import com.intellij.util.containers.ContainerUtil
 import com.intellij.util.messages.MessageBusConnection
 import java.util.*
 
@@ -78,9 +82,19 @@ class SdkClassFinder(private val project: Project, manager: DebuggerManagerEx)
 //  }
 
   override fun findClass(qualifiedName: String, scope: GlobalSearchScope): PsiClass? {
-    val findClass = super.findClass(qualifiedName, scope)
-    if (currentAndroidSdk != null && qualifiedName.startsWith("android") && findClass is ClsClassImpl) {
-      println("findClass $qualifiedName -> $findClass in ${findClass.containingFile}")
+    if (qualifiedName.startsWith("java")) {
+      return null
+    }
+
+    val sourceClass = sourceFinder?.findClass(qualifiedName, EverythingGlobalScope())
+    if (sourceClass != null) {
+      println("findClass $qualifiedName -> $sourceClass in ${sourceClass.containingFile.containingDirectory}")
+      return sourceClass
+    }
+
+    val findClass = superFindClass(qualifiedName, scope)
+    if (currentAndroidSdk != null && qualifiedName == "android.view.View" && findClass is ClsClassImpl) {
+      println("findClass $qualifiedName -> $findClass in ${findClass.containingFile.containingDirectory}")
       return object: ClsClassImpl(findClass.stub) {
         override fun getNavigationElement(): PsiElement {
           return sourceFinder?.findClass(qualifiedName, scope) ?: this
@@ -88,6 +102,55 @@ class SdkClassFinder(private val project: Project, manager: DebuggerManagerEx)
       }
     }
     return findClass
+  }
+
+  private val myFileExtensions: Array<String> = arrayOf("class")
+  private val myManager: PsiManager = PsiManager.getInstance(myProject)
+
+  private fun superFindClass(qualifiedName: String, scope: GlobalSearchScope): PsiClass? {
+    val result = Ref.create<PsiClass>()
+    processDirectories(StringUtil.getPackageName(qualifiedName), scope, Processor<VirtualFile> { dir ->
+      val virtualFile = findChild(dir, StringUtil.getShortName(qualifiedName), myFileExtensions)
+      val file = if (virtualFile == null) null else myManager.findFile(virtualFile!!)
+      if (file is PsiClassOwner) {
+        val classes = (file as PsiClassOwner).classes
+        if (classes.size == 1) {
+          result.set(classes[0])
+          return@Processor false
+        }
+      }
+      true
+    })
+    return result.get()
+  }
+
+  private fun processDirectories(qualifiedName: String,
+                                 scope: GlobalSearchScope,
+                                 processor: Processor<VirtualFile>): Boolean {
+    fun <T> process(list: List<T>, processor: Processor<T>): Boolean {
+      var i = 0
+      val size = list.size
+      while (i < size) {
+        val t = list[i]
+        if (!processor.process(t)) {
+          return false
+        }
+        i++
+      }
+      return true
+    }
+    return process(getCache(scope).getDirectoriesByPackageName(qualifiedName), Processor<VirtualFile> { file -> processor.process(file) })
+  }
+
+  private fun findChild(root: VirtualFile,
+                        relPath: String,
+                        extensions: Array<String>): VirtualFile? {
+    var file: VirtualFile? = null
+    for (extension in extensions) {
+      file = root.findChild(relPath + '.' + extension)
+      if (file != null) break
+    }
+    return file
   }
 
   override fun processPackageDirectories(psiPackage: PsiPackage, scope: GlobalSearchScope, consumer: Processor<PsiDirectory>, includeLibrarySources: Boolean): Boolean {

@@ -66,7 +66,7 @@ class StatusWidget(val project: Project) : StatusBarWidget.Multiframe, CustomSta
       myComponent.foreground = UIUtil.getInactiveTextColor()
     } else {
       ghosted = false
-      myComponent.text = "SDK ${sdkLevel.apiLevel} + (${sdkLevel.sdkVersion})"
+      myComponent.text = "SDK ${sdkLevel.apiLevel} (${sdkLevel.sdkVersion})"
       myComponent.foreground = UIUtil.getActiveTextColor()
     }
   }

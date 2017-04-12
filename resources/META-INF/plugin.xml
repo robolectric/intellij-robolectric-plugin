@@ -31,6 +31,12 @@
     <java.elementFinder implementation="org.robolectric.ideaplugin.SdkClassFinder" order="first, before java"/>
 
     <stubIndex implementation="org.robolectric.ideaplugin.StubIndex"/>
+
+    <psi.clsCustomNavigationPolicy implementation="org.robolectric.ideaplugin.CustomNavigationPolicy"/>
+<!--
+    &lt;!&ndash; maybe override getGotoDeclarationTarget()? &ndash;&gt;
+    <targetElementEvaluator language="JAVA" implementationClass="org.robolectric.ideaplugin.MyJavaTargetElementEvaluator" order="first"/>
+-->
   </extensions>
 
   <actions>

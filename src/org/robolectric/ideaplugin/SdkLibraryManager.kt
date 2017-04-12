@@ -1,15 +1,18 @@
 package org.robolectric.ideaplugin
 
+import com.intellij.debugger.DebuggerManagerEx
+import com.intellij.debugger.impl.DebuggerManagerAdapter
+import com.intellij.debugger.impl.DebuggerSession
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.module.Module
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.roots.DependencyScope
-import com.intellij.openapi.roots.LibraryOrderEntry
-import com.intellij.openapi.roots.ModuleRootManager
-import com.intellij.openapi.roots.OrderRootType
+import com.intellij.openapi.roots.*
 import com.intellij.openapi.roots.impl.libraries.LibraryEx
 import com.intellij.openapi.roots.impl.libraries.ProjectLibraryTable
 import com.intellij.openapi.roots.libraries.*
+import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.psi.NonClasspathClassFinder
+import com.intellij.util.messages.MessageBusConnection
 import java.util.*
 
 class SdkLibraryManager(private val project: Project) {
@@ -17,6 +20,97 @@ class SdkLibraryManager(private val project: Project) {
 
   private val SDKs = Sdks()
   private val androidAllSdkLibraries : MutableMap<AndroidSdk, Library> = HashMap()
+
+  private var myConnection: MessageBusConnection
+  private var currentAndroidSdk: AndroidSdk? = null
+
+  private var _sourceFinder: NonClasspathClassFinder? = null
+  val sourceFinder: NonClasspathClassFinder?
+    get() {
+      if (_sourceFinder != null) {
+        return _sourceFinder
+      }
+
+      val androidSdk = currentAndroidSdk
+      if (androidSdk != null) {
+        val library = getLibrary(androidSdk)
+        if (library != null) {
+          val sourceFiles = library.rootProvider.getFiles(OrderRootType.SOURCES)
+          _sourceFinder = object: NonClasspathClassFinder(project, "java") {
+            override fun calcClassRoots(): MutableList<VirtualFile> {
+              return sourceFiles.toMutableList()
+            }
+          }
+        }
+      }
+
+      return _sourceFinder
+    }
+
+  init {
+    myConnection = project.messageBus.connect()
+    myConnection.subscribe(Notifier.Topics.DEBUG_TOPIC, object : Notifier.DebugListener {
+      override fun sdkChanged(androidSdk: AndroidSdk?) {
+        currentAndroidSdk = androidSdk
+        clearCache()
+
+        if (androidSdk == null) {
+          undoAddSourcesToLibrary.invoke()
+        } else {
+          addSourcesToLibrary(androidSdk)
+        }
+      }
+    })
+
+    val manager = DebuggerManagerEx.getInstanceEx(project)
+    manager.addDebuggerManagerListener(object : DebuggerManagerAdapter() {
+      override fun sessionCreated(session: DebuggerSession?) = clearCache()
+      override fun sessionRemoved(session: DebuggerSession?) = clearCache()
+    })
+  }
+
+  var undoAddSourcesToLibrary: () -> Unit = { }
+
+  private fun addSourcesToLibrary(androidSdk: AndroidSdk) {
+    undoAddSourcesToLibrary.invoke()
+
+    application.runWriteAction {
+      val projectRootManager = ProjectRootManager.getInstance(project)
+      val libraries = projectRootManager.orderEntries()
+      var foundLibrary: Library? = null
+      libraries.forEachLibrary { library ->
+        val found = library.getFiles(OrderRootType.CLASSES).any { it.findFileByRelativePath("android/view/View.class") != null }
+        if (found) {
+          foundLibrary = library
+        }
+        return@forEachLibrary found
+      }
+
+      val libraryEx = foundLibrary as LibraryEx
+      val srcJarFile = androidSdk.sourceJarFile
+      val modifiableModel = libraryEx.modifiableModel
+      val jarPath = "jar://${srcJarFile.path}!/"
+      modifiableModel.addRoot(jarPath, OrderRootType.SOURCES)
+      modifiableModel.commit()
+      println("Added $jarPath to $libraryEx")
+
+      undoAddSourcesToLibrary = {
+        application.runWriteAction {
+          val anotherModifiableModel = libraryEx.modifiableModel
+          anotherModifiableModel.removeRoot(jarPath, OrderRootType.SOURCES)
+          anotherModifiableModel.commit()
+          println("Removed $jarPath from $libraryEx")
+          undoAddSourcesToLibrary = { }
+        }
+      }
+    }
+  }
+
+  fun clearCache() {
+    _sourceFinder = null
+  }
+
+
 
   fun findSdkLibraries(): LibraryTable? {
     val libraryTable = ProjectLibraryTable.getInstance(project)

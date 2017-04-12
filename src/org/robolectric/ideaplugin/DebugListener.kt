@@ -29,6 +29,7 @@ import com.intellij.openapi.roots.impl.libraries.ProjectLibraryTable
 import com.intellij.openapi.roots.libraries.*
 import com.intellij.openapi.vfs.VirtualFileManager
 import com.intellij.psi.*
+import com.intellij.psi.search.EverythingGlobalScope
 import com.sun.jdi.*
 import com.sun.jdi.request.ClassPrepareRequest
 import java.util.*
@@ -78,7 +79,7 @@ class DebugListener(private val project: Project) : DebuggerManagerListener {
       val process = session.process
       process.managerThread.invokeAndWait(object: DebuggerCommandImpl() {
         override fun action() {
-//        process.appendPositionManager(MyPositionManager(process))
+          process.appendPositionManager(MyPositionManager(process))
         }
       })
 
@@ -117,7 +118,7 @@ class DebugListener(private val project: Project) : DebuggerManagerListener {
               val classClasses = vm.classesByName("org.robolectric.RuntimeEnvironment")
               val runtimeEnvVmClass = classClasses.first() as ClassType
               val getApiLevelVmMethod = DebuggerUtils.findMethod(runtimeEnvVmClass, "getApiLevel", "()I")!!
-              val value = process.invokeMethod(evaluationContext, runtimeEnvVmClass, getApiLevelVmMethod, ArrayList())
+              val value = process.invokeMethod(evaluationContext, runtimeEnvVmClass, getApiLevelVmMethod, ArrayList<Any>())
 
               println("value = $value")
               println(DebuggerUtils.getValueAsString(evaluationContext, value))
@@ -150,8 +151,12 @@ class DebugListener(private val project: Project) : DebuggerManagerListener {
     //            }
   }
 
-  private fun laterOnUiThread(function: () -> Unit) {
-    SwingUtilities.invokeLater(function)
+  private fun nowOrLaterOnUiThread(function: () -> Unit) {
+    if (SwingUtilities.isEventDispatchThread()) {
+      function.invoke()
+    } else {
+      SwingUtilities.invokeLater(function)
+    }
   }
 
 //  var undoAddLibrary: Runnable? = null
@@ -176,7 +181,7 @@ class DebugListener(private val project: Project) : DebuggerManagerListener {
     if (sdkLevel != lastNotifiedApiLevel) {
       lastNotifiedApiLevel = sdkLevel
 
-      laterOnUiThread {
+      nowOrLaterOnUiThread {
         val androidSdk = if (sdkLevel == 0) null else sdkLibraryManager.getSdk(sdkLevel)
         val publisher = project.messageBus.syncPublisher(Notifier.Topics.DEBUG_TOPIC)
         publisher.sdkChanged(androidSdk)
@@ -202,7 +207,9 @@ class DebugListener(private val project: Project) : DebuggerManagerListener {
 //    }
 //  }
 
-//  inner class MyPositionManager(process: DebugProcessImpl) : PositionManagerImpl(process) {
+  inner class MyPositionManager(process: DebugProcessImpl) : PositionManagerImpl(process) {
+    private fun sdkLibraryManager(project: Project) = RobolectricProjectComponent.getInstance(project).sdkLibraryManager
+
 //    override fun locationsOfLine(type: ReferenceType, position: SourcePosition): MutableList<Location> {
 //      val locationsOfLine = super.locationsOfLine(type, position)
 //      println("locations of line $type $position -> $locationsOfLine")
@@ -220,9 +227,18 @@ class DebugListener(private val project: Project) : DebuggerManagerListener {
 //      println("create prepare request $requestor $position -> $prepareRequest")
 //      return prepareRequest
 //    }
-//
-//    override fun getPsiFileByLocation(project: Project?, location: Location?): PsiFile? {
-//      val typeName = location?.declaringType()?.name() ?: ""
+
+    override fun getPsiFileByLocation(project: Project?, location: Location?): PsiFile? {
+      val typeName = location?.declaringType()?.name()
+      if (project != null && location != null && typeName != null) {
+        val sourceFinder = sdkLibraryManager(project).sourceFinder
+        val srcClass = sourceFinder?.findClass(typeName, EverythingGlobalScope())
+        if (srcClass != null) {
+          return srcClass.containingFile
+        }
+      }
+
+      return super.getPsiFileByLocation(project, location)
 //      if (currentSdkLevel != 0 && typeName.startsWith("android.")) {
 //        location!!
 //
@@ -244,47 +260,47 @@ class DebugListener(private val project: Project) : DebuggerManagerListener {
 //      }
 //
 //      return super.getPsiFileByLocation(project, location)
-//    }
+    }
+
+    override fun getSourcePosition(location: Location?): SourcePosition? {
+//        DebuggerManagerThreadImpl.assertIsManagerThread()
 //
-//    override fun getSourcePosition(location: Location?): SourcePosition? {
-////        DebuggerManagerThreadImpl.assertIsManagerThread()
-////
-////        val typeName = location?.declaringType()?.name() ?: ""
-////        if (false && typeName.startsWith("android.")) {
-////          location!!
-////
-////          val version = sdksByApiLevel[currentSdkLevel]
-////          val library = androidAllSdkLibraries[version]
-////          val classPsi = javaPsiFacade.findClass(typeName, LibraryScope(project, library))
-////          println("using library = $library for $location")
-////          val psiFile = classPsi!!.containingFile
-////
-////          var lineNumber: Int
-////          try {
-////            lineNumber = location.lineNumber() - 1
-////          } catch (e: InternalError) {
-////            lineNumber = -1
-////          }
-////
-////          var sourcePosition: SourcePosition? = null
-////          if (lineNumber > -1) {
-////            sourcePosition = calcLineMappedSourcePosition(psiFile, lineNumber)
-////          }
-////
-////          return SourcePosition.createFromElement(psiFile)
-////        } else {
-//      val sourcePosition = super.getSourcePosition(location)
-//      println("get source position $location -> $sourcePosition")
-//      return sourcePosition
-////        }
-//    }
+//        val typeName = location?.declaringType()?.name() ?: ""
+//        if (false && typeName.startsWith("android.")) {
+//          location!!
 //
-//    private fun calcLineMappedSourcePosition(psiFile: PsiFile, originalLine: Int): SourcePosition? {
-//      val line = DebuggerUtilsEx.bytecodeToSourceLine(psiFile, originalLine)
-//      if (line > -1) {
-//        return SourcePosition.createFromLine(psiFile, line - 1)
-//      }
-//      return null
-//    }
-//  }
+//          val version = sdksByApiLevel[currentSdkLevel]
+//          val library = androidAllSdkLibraries[version]
+//          val classPsi = javaPsiFacade.findClass(typeName, LibraryScope(project, library))
+//          println("using library = $library for $location")
+//          val psiFile = classPsi!!.containingFile
+//
+//          var lineNumber: Int
+//          try {
+//            lineNumber = location.lineNumber() - 1
+//          } catch (e: InternalError) {
+//            lineNumber = -1
+//          }
+//
+//          var sourcePosition: SourcePosition? = null
+//          if (lineNumber > -1) {
+//            sourcePosition = calcLineMappedSourcePosition(psiFile, lineNumber)
+//          }
+//
+//          return SourcePosition.createFromElement(psiFile)
+//        } else {
+      val sourcePosition = super.getSourcePosition(location)
+      println("get source position $location -> $sourcePosition")
+      return sourcePosition
+//        }
+    }
+
+    private fun calcLineMappedSourcePosition(psiFile: PsiFile, originalLine: Int): SourcePosition? {
+      val line = DebuggerUtilsEx.bytecodeToSourceLine(psiFile, originalLine)
+      if (line > -1) {
+        return SourcePosition.createFromLine(psiFile, line - 1)
+      }
+      return null
+    }
+  }
 }
