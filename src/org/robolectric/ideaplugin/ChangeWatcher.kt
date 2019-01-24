@@ -53,6 +53,7 @@ class ChangeWatcher : PsiTreeChangeAdapter() {
           name = cur.packageName + "." + name
           cur = null
         }
+        else -> cur = null
       }
     }
     return name

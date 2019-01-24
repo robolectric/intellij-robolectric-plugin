@@ -4,34 +4,21 @@ import com.intellij.debugger.SourcePosition
 import com.intellij.debugger.engine.DebugProcessImpl
 import com.intellij.debugger.engine.DebuggerUtils
 import com.intellij.debugger.engine.PositionManagerImpl
-import com.intellij.debugger.engine.evaluation.expression.EvaluatorBuilderImpl
 import com.intellij.debugger.engine.events.DebuggerCommandImpl
 import com.intellij.debugger.impl.DebuggerContextImpl
 import com.intellij.debugger.impl.DebuggerManagerListener
 import com.intellij.debugger.impl.DebuggerSession
 import com.intellij.debugger.impl.DebuggerUtilsEx
-import com.intellij.debugger.requests.ClassPrepareRequestor
-import com.intellij.lang.java.JavaLanguage
 import com.intellij.openapi.application.ApplicationManager
-import com.intellij.openapi.application.ModalityState
-import com.intellij.openapi.module.Module
-import com.intellij.openapi.module.ModuleManager
-import com.intellij.openapi.module.ModuleUtilCore
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.projectRoots.ProjectJdkTable
-import com.intellij.openapi.roots.DependencyScope
-import com.intellij.openapi.roots.LibraryOrderEntry
-import com.intellij.openapi.roots.ModuleRootManager
-import com.intellij.openapi.roots.OrderRootType
-import com.intellij.openapi.roots.impl.ModuleLibraryOrderEntryImpl
-import com.intellij.openapi.roots.impl.libraries.LibraryEx
-import com.intellij.openapi.roots.impl.libraries.ProjectLibraryTable
-import com.intellij.openapi.roots.libraries.*
 import com.intellij.openapi.vfs.VirtualFileManager
-import com.intellij.psi.*
+import com.intellij.psi.JavaPsiFacade
+import com.intellij.psi.PsiFile
+import com.intellij.psi.PsiManager
 import com.intellij.psi.search.EverythingGlobalScope
-import com.sun.jdi.*
-import com.sun.jdi.request.ClassPrepareRequest
+import com.sun.jdi.ClassType
+import com.sun.jdi.IntegerValue
+import com.sun.jdi.Location
 import java.util.*
 import javax.swing.SwingUtilities
 
@@ -115,10 +102,12 @@ class DebugListener(private val project: Project) : DebuggerManagerListener {
               println("huh, no evaluationContext!")
             } else {
               val vm = process.virtualMachineProxy
-              val classClasses = vm.classesByName("org.robolectric.RuntimeEnvironment")
-              val runtimeEnvVmClass = classClasses.first() as ClassType
+              val currentClassLoader = evaluationContext.classLoader
+              val runtimeEnvVmClass = vm.classesByName("org.robolectric.RuntimeEnvironment")
+                  .find { it.classLoader() == currentClassLoader }!! as ClassType
+
               val getApiLevelVmMethod = DebuggerUtils.findMethod(runtimeEnvVmClass, "getApiLevel", "()I")!!
-              val value = process.invokeMethod(evaluationContext, runtimeEnvVmClass, getApiLevelVmMethod, ArrayList<Any>())
+              val value = process.invokeMethod(evaluationContext, runtimeEnvVmClass, getApiLevelVmMethod, Collections.emptyList())
 
               println("value = $value")
               println(DebuggerUtils.getValueAsString(evaluationContext, value))

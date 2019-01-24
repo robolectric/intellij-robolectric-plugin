@@ -4,6 +4,7 @@ import com.intellij.debugger.DebuggerManagerEx
 import com.intellij.debugger.impl.DebuggerManagerAdapter
 import com.intellij.debugger.impl.DebuggerSession
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.module.Module
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.roots.*
@@ -91,7 +92,7 @@ class SdkLibraryManager(private val project: Project) {
       val modifiableModel = libraryEx.modifiableModel
       val jarPath = "jar://${srcJarFile.path}!/"
       modifiableModel.addRoot(jarPath, OrderRootType.SOURCES)
-      modifiableModel.commit()
+      application.invokeAndWait({ modifiableModel.commit() }, ModalityState.current())
       println("Added $jarPath to $libraryEx")
 
       undoAddSourcesToLibrary = {
@@ -225,7 +226,13 @@ class SdkLibraryManager(private val project: Project) {
         AndroidSdk(21, "5.0.0_r2", "1"),
         AndroidSdk(22, "5.1.1_r9", "1"),
         AndroidSdk(23, "6.0.0_r1", "0"),
-        AndroidSdk(24, "7.0.0_r1", "0")
+        AndroidSdk(24, "7.0.0_r1", "0"),
+        AndroidSdk(25, "7.1.0_r7", "0"),
+        AndroidSdk(26, "8.0.0_r4", "0"),
+        AndroidSdk(27, "8.1.0", "0"),
+        AndroidSdk(28, "9.0", "0"),
+        AndroidSdk(29, "10", "0"),
+        AndroidSdk(10000, "10", "0")
     )
 
     init {
